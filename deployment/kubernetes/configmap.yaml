@@ -1,0 +1,35 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rag-config
+  namespace: rag-research
+data:
+  APP_ENV: "production"
+  APP_HOST: "0.0.0.0"
+  APP_PORT: "8000"
+  CHROMA_HOST: "rag-chromadb-svc"
+  CHROMA_PORT: "8000"
+  EMBEDDING_MODEL: "sentence-transformers/all-MiniLM-L6-v2"
+  EMBEDDING_DIMENSION: "384"
+  CHUNK_SIZE: "512"
+  CHUNK_OVERLAP: "50"
+  TOP_K_RETRIEVAL: "5"
+  SIMILARITY_THRESHOLD: "0.75"
+  MAX_CONTEXT_TOKENS: "6000"
+  RATE_LIMIT_PER_MINUTE: "20"
+  API_URL: "https://research.yourdomain.com"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: rag-secrets
+  namespace: rag-research
+type: Opaque
+stringData:
+  # Replace with actual secrets in production
+  # Use kubectl create secret or external secrets operator
+  DATABASE_URL: "postgresql+asyncpg://rag_user:CHANGE_ME@postgres-svc:5432/rag_research"
+  REDIS_URL: "redis://:CHANGE_ME@redis-svc:6379/0"
+  GOOGLE_API_KEY: "CHANGE_ME"
+  JWT_SECRET_KEY: "CHANGE_ME_LONG_RANDOM_STRING"
+  APP_SECRET_KEY: "CHANGE_ME_LONG_RANDOM_STRING"

@@ -1,0 +1,23 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libpq-dev \
+    tesseract-ocr \
+    tesseract-ocr-eng \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY backend/requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir torch==2.3.0 --index-url https://download.pytorch.org/whl/cpu && \
+    pip install --no-cache-dir -r requirements.txt
+
+COPY backend/ ./backend/
+
+RUN useradd -m -u 1000 celeryuser && chown -R celeryuser:celeryuser /app
+USER celeryuser
+
+CMD ["celery", "-A", "backend.ingestion.tasks.celery_app", "worker", \
+     "--loglevel=info", "--concurrency=2", "-Q", "celery"]

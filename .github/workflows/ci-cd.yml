@@ -1,0 +1,234 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ${{ github.repository_owner }}/rag-research
+
+jobs:
+  # ── Lint & Test ──────────────────────────────────────────────────────────────
+  test-backend:
+    name: Backend Tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: rag_test
+          POSTGRES_USER: rag_user
+          POSTGRES_PASSWORD: testpassword
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r backend/requirements.txt
+
+      - name: Run linting
+        run: |
+          pip install flake8 black isort
+          flake8 backend/ --max-line-length=100 --exclude=__pycache__
+          black --check backend/
+          isort --check-only backend/
+
+      - name: Run tests
+        env:
+          DATABASE_URL: postgresql+asyncpg://rag_user:testpassword@localhost:5432/rag_test
+          REDIS_URL: redis://localhost:6379/0
+          GOOGLE_API_KEY: test-key
+          JWT_SECRET_KEY: test-jwt-secret
+          APP_SECRET_KEY: test-app-secret
+        run: |
+          pytest backend/tests/ -v --tb=short --asyncio-mode=auto
+
+  test-frontend:
+    name: Frontend Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Run linting
+        working-directory: frontend
+        run: npm run lint
+
+      - name: Build
+        working-directory: frontend
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:8000
+        run: npm run build
+
+  # ── Build & Push Docker Images ───────────────────────────────────────────────
+  build-and-push:
+    name: Build & Push Images
+    runs-on: ubuntu-latest
+    needs: [test-backend, test-frontend]
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Extract metadata
+        id: meta
+        run: |
+          echo "VERSION=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+          echo "BRANCH=${GITHUB_REF#refs/heads/}" >> $GITHUB_OUTPUT
+
+      - name: Build and push backend
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: deployment/docker/Dockerfile.backend
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-backend:${{ steps.meta.outputs.VERSION }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-backend:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push frontend
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: deployment/docker/Dockerfile.frontend
+          push: true
+          build-args: |
+            NEXT_PUBLIC_API_URL=https://api.yourdomain.com
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-frontend:${{ steps.meta.outputs.VERSION }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-frontend:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push celery worker
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: deployment/docker/Dockerfile.celery
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-celery:${{ steps.meta.outputs.VERSION }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-celery:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ── Deploy to Staging ────────────────────────────────────────────────────────
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: github.ref == 'refs/heads/develop'
+    environment: staging
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+
+      - name: Configure kubeconfig
+        run: |
+          echo "${{ secrets.KUBE_CONFIG_STAGING }}" | base64 -d > kubeconfig
+          export KUBECONFIG=kubeconfig
+
+      - name: Deploy to staging
+        run: |
+          export KUBECONFIG=kubeconfig
+          VERSION=$(git rev-parse --short HEAD)
+          kubectl set image deployment/rag-backend backend=${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-backend:$VERSION -n rag-research-staging
+          kubectl set image deployment/rag-frontend frontend=${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-frontend:$VERSION -n rag-research-staging
+          kubectl rollout status deployment/rag-backend -n rag-research-staging --timeout=300s
+          kubectl rollout status deployment/rag-frontend -n rag-research-staging --timeout=300s
+
+  # ── Deploy to Production ─────────────────────────────────────────────────────
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: github.ref == 'refs/heads/main'
+    environment: production
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+
+      - name: Configure kubeconfig
+        run: |
+          echo "${{ secrets.KUBE_CONFIG_PROD }}" | base64 -d > kubeconfig
+
+      - name: Deploy to production
+        run: |
+          export KUBECONFIG=kubeconfig
+          VERSION=$(git rev-parse --short HEAD)
+          kubectl set image deployment/rag-backend backend=${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-backend:$VERSION -n rag-research
+          kubectl set image deployment/rag-frontend frontend=${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-frontend:$VERSION -n rag-research
+          kubectl rollout status deployment/rag-backend -n rag-research --timeout=300s
+          kubectl rollout status deployment/rag-frontend -n rag-research --timeout=300s
+
+      - name: Verify deployment
+        run: |
+          export KUBECONFIG=kubeconfig
+          kubectl get pods -n rag-research
+          echo "Deployment successful!"
+
+      - name: Rollback on failure
+        if: failure()
+        run: |
+          export KUBECONFIG=kubeconfig
+          kubectl rollout undo deployment/rag-backend -n rag-research
+          kubectl rollout undo deployment/rag-frontend -n rag-research
+          echo "Rolled back to previous version"

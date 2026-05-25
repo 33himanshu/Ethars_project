@@ -1,0 +1,87 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --foreground-rgb: 241, 245, 249;
+  --background-start-rgb: 15, 23, 42;
+  --background-end-rgb: 15, 23, 42;
+}
+
+body {
+  color: rgb(var(--foreground-rgb));
+  background: rgb(var(--background-start-rgb));
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #1e293b;
+}
+::-webkit-scrollbar-thumb {
+  background: #475569;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
+}
+
+/* Prose styles for markdown rendering */
+.prose-dark {
+  color: #e2e8f0;
+}
+.prose-dark h1, .prose-dark h2, .prose-dark h3 {
+  color: #f1f5f9;
+  font-weight: 600;
+}
+.prose-dark code {
+  background: #1e293b;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.875em;
+  color: #93c5fd;
+}
+.prose-dark pre {
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  padding: 16px;
+}
+.prose-dark blockquote {
+  border-left: 3px solid #3b82f6;
+  padding-left: 16px;
+  color: #94a3b8;
+}
+
+/* Citation highlight */
+.citation-ref {
+  color: #60a5fa;
+  cursor: pointer;
+  font-size: 0.8em;
+  vertical-align: super;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+}
+.citation-ref:hover {
+  color: #93c5fd;
+}
+
+/* Typing indicator */
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+.typing-dot {
+  animation: blink 1.4s infinite;
+}
+.typing-dot:nth-child(2) { animation-delay: 0.2s; }
+.typing-dot:nth-child(3) { animation-delay: 0.4s; }
+
+/* Upload drop zone */
+.drop-zone-active {
+  border-color: #3b82f6 !important;
+  background-color: rgba(59, 130, 246, 0.05) !important;
+}
