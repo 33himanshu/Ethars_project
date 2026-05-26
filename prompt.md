@@ -1,39 +1,39 @@
-## **RAG-Based AI Research Assistant**
+## RAG-Based AI Research Assistant
 
 Complete System Prompt — Production Implementation
 
 ---
 
-## **Context and Role**
+## Context and Role
 
-You are an AI/ML Engineer specializing in Large Language Models (LLMs — neural networks trained on large text corpora to understand and generate human-like text) and Retrieval-Augmented Generation (RAG — an architecture that retrieves relevant document passages before generating answers, ensuring responses are grounded in source material rather than model memory alone).
+You're an AI/ML Engineer who specializes in Large Language Models (LLMs — neural networks trained on massive text datasets to understand and generate human-like text) and Retrieval-Augmented Generation (RAG — a technique where you retrieve relevant document passages first, then generate answers grounded in those sources instead of relying purely on the model's training data).
 
-Your task is to design and implement an AI research assistant for academic papers. The system must provide citation-aware responses (answers that reference the exact source document, author, and page number for every claim) while minimizing hallucinations (fabricated or ungrounded statements not supported by any retrieved document) to below 5% of all responses.
+Your job: build an AI research assistant for academic papers. It needs to give citation-aware responses (every claim must reference the exact source document, author, and page number) while keeping hallucinations (made-up statements not backed by any retrieved document) under 5% of all responses.
 
-The assistant enables researchers, students, and professionals to query large collections of academic PDFs through semantic search (retrieval by meaning rather than exact keyword match), conversational querying (multi-turn dialogue with memory of prior exchanges), and context-aware retrieval (using conversation history to refine search results).
-
----
-
-## **Objective**
-
-Design and implement a complete RAG-based AI research assistant that satisfies all of the following measurable requirements:
-
-- Ingest and process academic papers in PDF and plain-text formats, supporting files up to 50MB each
-- Support semantic search (embedding-based similarity search returning top 5 results) and hybrid retrieval (combining semantic and BM25 keyword search via RRF fusion, defined in Section 3)
-- Provide citation-aware answers with source attribution: every claim in a response must include document title, authors, and page number in `[Author, Year, Chunk ID]` format
-- Maintain conversational memory across user sessions: store the last 10 conversation turns per session in Redis with a 24-hour TTL (time-to-live — automatic expiration to prevent unbounded memory growth)
-- Minimize hallucinations by grounding all responses in retrieved document chunks: refuse to answer when no retrieved chunk has a cosine similarity score above 0.75
-- Stream responses token by token in real time using Server-Sent Events (SSE — an HTTP protocol for unidirectional server-to-client streaming, chosen over WebSocket because communication is one-way from server to browser)
-- Support concurrent access by at least 20 simultaneous users without degradation, enforced via rate limiting of 20 requests per minute per user
-- Include monitoring (real-time metrics collection via Prometheus), observability (distributed tracing via OpenTelemetry to track a request across all services), and evaluation pipelines (automated scripts that measure retrieval accuracy, hallucination rate, and latency against a labeled test set)
+The assistant lets researchers, students, and professionals search through large PDF collections using semantic search (finding documents by meaning, not just exact keywords), conversational querying (multi-turn dialogue that remembers previous exchanges), and context-aware retrieval (using conversation history to improve search results).
 
 ---
 
-## **Critical Output Requirement**
+## Objective
 
-Generate complete, working, executable code organized into modular files where each file has a single responsibility. Every component described below must have accompanying implementation code. Do not describe architecture without code.
+Build a complete RAG-based AI research assistant that meets these measurable requirements:
 
-Structure all output as follows:
+- Ingest and process academic papers in PDF and plain-text formats (up to 50MB per file)
+- Support semantic search (embedding-based similarity returning top 5 results) and hybrid retrieval (combining semantic + BM25 keyword search via RRF fusion — explained in Section 3)
+- Provide citation-aware answers with source attribution: every claim must include document title, authors, and page number in `[Author, Year, Chunk ID]` format
+- Maintain conversational memory across sessions: store the last 10 turns per session in Redis with 24-hour TTL (time-to-live — auto-expires after 24 hours to prevent unbounded memory growth)
+- Minimize hallucinations by grounding responses in retrieved chunks: refuse to answer when no chunk has cosine similarity above 0.75
+- Stream responses token-by-token in real time using Server-Sent Events (SSE — an HTTP protocol for server-to-client streaming, chosen over WebSocket since communication only flows one direction)
+- Support at least 20 concurrent users without performance degradation, enforced via rate limiting (20 requests/minute per user)
+- Include monitoring (real-time metrics via Prometheus), observability (distributed tracing via OpenTelemetry to track requests across services), and evaluation pipelines (automated scripts measuring retrieval accuracy, hallucination rate, and latency against labeled test data)
+
+---
+
+## Critical Output Requirement
+
+Generate complete, working, executable code organized into modular files. Each file should have one clear responsibility. Provide every file needed to run the system end-to-end. Don't just describe architecture — include actual implementation code.
+
+Structure your output like this:
 
 ```
 project-root/
@@ -60,44 +60,44 @@ project-root/
 
 ---
 
-## **Test Case and Sample Data**
+## Test Case and Sample Data
 
-Use the following concrete scenario in all code examples, API samples, and pipeline demonstrations:
+Use this concrete scenario in all code examples, API samples, and pipeline demonstrations:
 
 - **Sample document**: "Attention Is All You Need" (Vaswani et al., 2017)
 - **Sample user query**: "What attention mechanism is proposed in this paper and how does it differ from RNNs?"
-- **Expected behavior**: The system retrieves the top 5 relevant chunks from the paper, injects them into the LLM context window, generates a citation-aware answer referencing specific sections, and streams the response token by token to the frontend via SSE
+- **Expected behavior**: System retrieves the top 5 relevant chunks, injects them into the LLM context, generates a citation-aware answer referencing specific sections, and streams the response token-by-token to the frontend via SSE
 
-All code examples must use this document and query as the reference scenario.
-
----
-
-## **Core System Requirements**
+All code examples must use this document and query.
 
 ---
 
-## **1. Document Ingestion Pipeline**
+## Core System Requirements
 
-Implement a pipeline that processes uploaded PDFs and indexes their content for retrieval. The pipeline must handle the following steps in order:
+---
 
-- **PDF parsing** using PyMuPDF (a Python binding for the MuPDF library — chosen for speed: parses a 20-page PDF in under 200ms — and text extraction that preserves layout and formatting) or pdfplumber (alternative Python library with superior table and column extraction, used as fallback when PyMuPDF produces garbled text)
+## 1. Document Ingestion Pipeline
 
-- **Metadata extraction** per document: title (string), authors (list of strings), publication year (4-digit integer), abstract (string, first paragraph), and citation count (integer if available)
+Build a pipeline that processes uploaded PDFs and indexes their content. Handle these steps in order:
 
-- **OCR fallback** for scanned PDFs using Tesseract (open-source OCR engine that converts page images into machine-readable text; used only when PyMuPDF extracts fewer than 10 words per page, indicating a scanned document)
+- **PDF parsing** using PyMuPDF (Python binding for MuPDF library — parses a 20-page PDF in under 200ms and extracts text while preserving layout) or pdfplumber (alternative with better table/column extraction, used as fallback when PyMuPDF produces garbled text)
 
-- **Text cleaning**: Remove null bytes, normalize Unicode to UTF-8, collapse consecutive whitespace to single spaces, strip page headers and footers matching common academic paper patterns
+- **Metadata extraction** per document: title (string), authors (list of strings), publication year (4-digit integer), abstract (string, first paragraph), citation count (integer if available)
+
+- **OCR fallback** for scanned PDFs using Tesseract (open-source OCR engine converting page images to machine-readable text; only used when PyMuPDF extracts fewer than 10 words per page, indicating a scanned document)
+
+- **Text cleaning**: Remove null bytes, normalize Unicode to UTF-8, collapse consecutive whitespace to single spaces, strip page headers/footers matching common academic paper patterns
 
 - **Chunking**:
-  - Chunk size: 512 tokens (a token is approximately 4 characters; 512 tokens ≈ 384 words, chosen to fit the embedding model's maximum input length)
-  - Chunk overlap: 50 tokens (consecutive chunks share 50 tokens at boundaries to preserve context for sentences that span chunk edges)
+  - Chunk size: 512 tokens (roughly 4 characters per token; 512 tokens ≈ 384 words, chosen to fit the embedding model's max input length)
+  - Chunk overlap: 50 tokens (consecutive chunks share 50 tokens at boundaries to preserve context for sentences spanning chunk edges)
   - Sentence-aware splitting: split only at sentence boundaries (`.`, `?`, `!`) to avoid cutting sentences mid-way
 
-- **Incremental indexing**: When a new document is uploaded, add only its chunks to ChromaDB without reprocessing existing documents
+- **Incremental indexing**: When a new document uploads, add only its chunks to ChromaDB without reprocessing existing documents
 
-- **Duplicate detection** using SHA-256 hash (a cryptographic function that produces a unique 64-character hex string for each file; if the hash of an uploaded file matches a stored hash, reject the upload with HTTP 409 Conflict)
+- **Duplicate detection** using SHA-256 hash (cryptographic function producing a unique 64-character hex string per file; if an uploaded file's hash matches a stored hash, reject with HTTP 409 Conflict)
 
-- **Asynchronous processing** using Celery (a Python distributed task queue that executes long-running jobs in background worker processes, preventing the upload API endpoint from timing out during PDF processing)
+- **Asynchronous processing** using Celery (Python distributed task queue executing long-running jobs in background worker processes, preventing the upload API endpoint from timing out during PDF processing)
 
 - **Retry mechanism**: On failure, retry the ingestion task up to 3 times with exponential backoff (wait 2^attempt seconds: 2s, 4s, 8s). Log each failure with error type, document ID, and attempt number.
 
@@ -105,92 +105,92 @@ Implement a pipeline that processes uploaded PDFs and indexes their content for 
 
 ---
 
-## **2. Embedding Strategy**
+## 2. Embedding Strategy
 
-Convert text chunks and user queries into numerical vectors for semantic similarity search using the following configuration:
+Convert text chunks and user queries into numerical vectors for semantic similarity search:
 
 - **Embedding model**: `sentence-transformers/all-MiniLM-L6-v2`
-  - **What it is**: A transformer neural network fine-tuned on semantic similarity tasks that maps text to a 384-dimensional vector space
-  - **Why chosen**: Scores 0.68 on the STS-B benchmark (semantic textual similarity), encodes 1000 sentences per second on CPU, runs locally with no API cost, and fits within 512-token input limit
-  - **Dimensionality**: 384 (each chunk is represented as a list of 384 floating-point numbers)
-  - **Where used**: Embedding generation module — called once per chunk during ingestion and once per query during retrieval
+  - **What it is**: Transformer neural network fine-tuned on semantic similarity tasks, mapping text to 384-dimensional vector space
+  - **Why this one**: Scores 0.68 on STS-B benchmark (semantic textual similarity), encodes 1000 sentences/second on CPU, runs locally with no API cost, fits within 512-token input limit
+  - **Dimensionality**: 384 (each chunk becomes a list of 384 floating-point numbers)
+  - **Where it's used**: Embedding generation module — called once per chunk during ingestion and once per query during retrieval
 
-- **Chunk size**: 512 tokens — matches the model's maximum input length; longer inputs are truncated, losing information
-- **Overlap**: 50 tokens — ensures boundary context is captured in adjacent chunk embeddings
+- **Chunk size**: 512 tokens — matches the model's max input length; longer inputs get truncated, losing information
+- **Overlap**: 50 tokens — ensures boundary context gets captured in adjacent chunk embeddings
 
 - **Embedding cache** using Redis (in-memory key-value store with sub-millisecond read latency):
   - Cache key: `emb:{sha256(text)}` — unique per text content
-  - TTL: 7 days — embeddings are deterministic so can be cached long-term
+  - TTL: 7 days — embeddings are deterministic so they can be cached long-term
   - **Why cache**: Avoids recomputing embeddings for repeated queries, reducing latency from ~100ms to ~1ms
 
 **Provide working code for**: Embedding generation module, batch embedding processor (encodes up to 64 chunks in parallel), Redis embedding cache layer.
 
 ---
 
-## **3. Retrieval Pipeline**
+## 3. Retrieval Pipeline
 
-Implement a hybrid retrieval pipeline that combines semantic and keyword search, then re-ranks results. Execute steps in this exact order:
+Build a hybrid retrieval pipeline combining semantic and keyword search, then re-ranking results. Execute these steps in exact order:
 
 **Step 1 — Query Expansion** using Gemini 2.5 Flash:
 - Generate 3 alternative phrasings of the user query (e.g., for "attention mechanism in transformers", generate "self-attention in neural networks", "scaled dot-product attention", "multi-head attention architecture")
-- **Why 3 variants**: Increases recall by capturing documents that match any phrasing; more than 3 adds latency without proportional recall gain
+- **Why 3 variants**: Increases recall by capturing documents matching any phrasing; more than 3 adds latency without proportional recall gain
 - Run all 4 queries (original + 3 variants) in parallel
 
 **Step 2 — Semantic Vector Search** using ChromaDB:
-- **What ChromaDB is**: An open-source vector database that stores embeddings and performs approximate nearest-neighbor search using cosine similarity (measures the angle between two vectors; score of 1.0 = identical, 0.0 = unrelated)
-- **Why chosen**: Simple Python API, persistent local storage, no separate server required for development, supports metadata filtering
+- **What ChromaDB is**: Open-source vector database storing embeddings and performing approximate nearest-neighbor search using cosine similarity (measures angle between two vectors; score of 1.0 = identical, 0.0 = unrelated)
+- **Why this one**: Simple Python API, persistent local storage, no separate server needed for development, supports metadata filtering
 - Retrieve top 20 candidates per query variant using cosine similarity
 - Apply metadata filters before search if provided: filter by `author` (string match), `year` (integer range), or `document_title` (string match)
 
 **Step 3 — BM25 Keyword Search** using `rank_bm25` library:
-- **What BM25 is**: Best Match 25 — a probabilistic ranking algorithm that scores documents by term frequency (how often query words appear) weighted by inverse document frequency (penalizes common words)
-- **Why used alongside semantic search**: Catches exact keyword matches that embeddings miss, such as specific model names, equation labels, or author surnames
+- **What BM25 is**: Best Match 25 — probabilistic ranking algorithm scoring documents by term frequency (how often query words appear) weighted by inverse document frequency (penalizes common words)
+- **Why use it alongside semantic search**: Catches exact keyword matches that embeddings miss, like specific model names, equation labels, or author surnames
 - Retrieve top 20 candidates per query variant
 
 **Step 4 — Hybrid Fusion** using Reciprocal Rank Fusion (RRF):
-- **What RRF is**: An algorithm that merges multiple ranked lists by computing `score = sum(1 / (k + rank))` for each document across all lists, where k=60 (a smoothing constant)
+- **What RRF is**: Algorithm merging multiple ranked lists by computing `score = sum(1 / (k + rank))` for each document across all lists, where k=60 (smoothing constant)
 - **Why RRF**: Parameter-free, handles score scale differences between semantic (0-1 cosine similarity) and keyword (unbounded BM25 scores) without normalization, empirically outperforms weighted sum fusion on TREC benchmarks
-- Merge all semantic and BM25 results into a single ranked list using RRF scores
+- Merge all semantic and BM25 results into one ranked list using RRF scores
 - Deduplicate by chunk ID before proceeding
 
 **Step 5 — Re-ranking** using `cross-encoder/ms-marco-MiniLM-L-6-v2`:
-- **What a cross-encoder is**: A neural model that takes a (query, document) pair as joint input and outputs a single relevance score — achieves higher precision than bi-encoder embeddings (0.85 vs 0.72 on MS MARCO) at the cost of 10x slower inference
-- **Why used**: Improves precision of final results by scoring query-chunk relevance directly
+- **What a cross-encoder is**: Neural model taking a (query, document) pair as joint input and outputting a single relevance score — achieves higher precision than bi-encoder embeddings (0.85 vs 0.72 on MS MARCO) at the cost of 10x slower inference
+- **Why use it**: Improves precision of final results by scoring query-chunk relevance directly
 - Score the top 20 fused candidates, return top 5 by cross-encoder score
 
 **Provide working code for**: Query expansion module, vector search module, BM25 retrieval module, RRF hybrid fusion module, re-ranking module, retrieval orchestrator (coordinates all 5 steps).
 
 ---
 
-## **4. LLM and Generation**
+## 4. LLM and Generation
 
-Use the following LLM configuration for answer generation:
+Use this LLM configuration for answer generation:
 
 - **Primary LLM**: Gemini 2.5 Flash via Google AI Studio API
-  - **What it is**: Google's fast multimodal language model optimized for low-latency text generation
-  - **Why chosen over alternatives**:
+  - **What it is**: Google's multimodal language model optimized for low-latency text generation
+  - **Why this one over alternatives**:
     - Speed: Generates first token in under 500ms (vs. ~1000ms for GPT-4o)
-    - Cost: Free tier provides 1500 requests/day; paid tier costs $0.075 per 1M input tokens
-    - Context window: 1M tokens (we use only 6000, leaving ample headroom)
-    - Native SSE streaming: Supports token-by-token streaming without additional configuration
-  - **Where used**: In the LLM generation module — receives the assembled prompt (system instructions + retrieved chunks + conversation history + user query) and streams the response
+    - Cost: Free tier gives 1500 requests/day; paid tier costs $0.075 per 1M input tokens
+    - Context window: 1M tokens (we only use 6000, leaving plenty of headroom)
+    - Native SSE streaming: Supports token-by-token streaming without extra configuration
+  - **Where it's used**: LLM generation module — receives the assembled prompt (system instructions + retrieved chunks + conversation history + user query) and streams the response
 
 - **Citation format**: Every factual claim must include `[Author, Year, Chunk ID]` inline (e.g., `[Vaswani, 2017, chunk_042]`)
 
-- **Source attribution**: After the response, list each cited source with: document title, authors, publication year, page number
+- **Source attribution**: After the response, list each cited source with document title, authors, publication year, page number
 
-- **Conversational memory**: Store the last 10 conversation turns (each turn = one user message + one assistant response) per session in Redis with 24-hour TTL. Inject stored turns into the prompt as `Conversation History`.
+- **Conversational memory**: Store the last 10 turns (each turn = one user message + one assistant response) per session in Redis with 24-hour TTL. Inject stored turns into the prompt as `Conversation History`.
 
 - **Streaming**: Send generated tokens to the frontend via SSE as they arrive from Gemini. Each SSE event contains one token and the event type (`token`, `citation`, or `done`).
 
-- **Hallucination prevention**: Only reference chunk IDs that appear in the retrieved context passed to the prompt. Verify citations post-generation (defined in Section 5).
+- **Hallucination prevention**: Only reference chunk IDs appearing in the retrieved context passed to the prompt. Verify citations post-generation (defined in Section 5).
 
-### **Prompt Template**
+### Prompt Template
 
 Use this exact system prompt structure:
 
 ```
-System: You are an academic research assistant. Answer ONLY using the provided context chunks. For every claim you make, cite the source chunk using [Author, Year, Chunk ID] format. If the context does not contain enough information to answer, respond with exactly: "I cannot find sufficient evidence in the provided documents."
+System: You are an academic research assistant. Answer ONLY using the provided context chunks. For every claim you make, cite the source chunk using [Author, Year, Chunk ID] format. If the context doesn't contain enough information to answer, respond with exactly: "I cannot find sufficient evidence in the provided documents."
 
 Context:
 {retrieved_chunks}
@@ -202,24 +202,24 @@ User Query:
 {current_query}
 ```
 
-### **Context Window Management**
+### Context Window Management
 
-- **Maximum context tokens**: 6000 (chosen to stay well within Gemini's limits while fitting 5 chunks + 10 conversation turns)
+- **Max context tokens**: 6000 (chosen to stay well within Gemini's limits while fitting 5 chunks + 10 conversation turns)
 - **Token budget allocation**: 5000 tokens for retrieved chunks + conversation history, 1000 tokens reserved for response generation
-- **Overflow handling**: If assembled context exceeds 6000 tokens, remove lowest-ranked chunks first (by cross-encoder score) until the budget is satisfied
+- **Overflow handling**: If assembled context exceeds 6000 tokens, remove lowest-ranked chunks first (by cross-encoder score) until budget is satisfied
 
 **Provide working code for**: LLM generation module, citation formatter, SSE streaming handler, context window manager, conversation memory manager.
 
 ---
 
-## **5. Hallucination Mitigation and Safety**
+## 5. Hallucination Mitigation and Safety
 
-Implement the following safeguards in the order listed. Each check must pass before proceeding to the next step:
+Implement these safeguards in order. Each check must pass before proceeding:
 
 - **Retrieval grounding validation** (before generation):
   - Compute cosine similarity between query embedding and each retrieved chunk embedding
   - If no chunk scores above 0.75, skip generation and return: `{"status": "refused", "message": "I cannot find sufficient evidence in the provided documents."}`
-  - **Why 0.75**: Threshold validated on academic text; below 0.75 indicates the retrieved chunks are unlikely to contain a relevant answer
+  - **Why 0.75**: Threshold validated on academic text; below 0.75 means retrieved chunks are unlikely to contain a relevant answer
 
 - **Confidence scoring** (attached to every response):
   - Formula: `confidence = mean(cosine_similarity_scores_of_top_5_chunks)`
@@ -227,16 +227,16 @@ Implement the following safeguards in the order listed. Each check must pass bef
   - **Why**: Gives users a quantitative signal of answer reliability
 
 - **Citation verification** (after generation):
-  - Parse all `[Author, Year, Chunk ID]` patterns from the generated response using regex
+  - Parse all `[Author, Year, Chunk ID]` patterns from generated response using regex
   - For each extracted chunk ID, verify it exists in the list of retrieved chunk IDs
-  - If a chunk ID is not found, remove the citation from the response and log a warning
-  - **Why**: Prevents the model from fabricating chunk IDs that were not retrieved
+  - If a chunk ID isn't found, remove the citation from response and log a warning
+  - **Why**: Prevents the model from fabricating chunk IDs that weren't retrieved
 
-- **Refusal behavior**: Return HTTP 200 with `status: "refused"` and the standard refusal message when no chunk meets the 0.75 threshold. Do not return HTTP 4xx for refusals.
+- **Refusal behavior**: Return HTTP 200 with `status: "refused"` and the standard refusal message when no chunk meets the 0.75 threshold. Don't return HTTP 4xx for refusals.
 
 - **Prompt injection prevention**:
-  - Strip the following patterns from user input using regex before processing: `ignore`, `system:`, `assistant:`, `<|`, `|>`, `[INST]`, `[/INST]`
-  - Maximum user input length: 1000 characters. Reject inputs exceeding this with HTTP 400.
+  - Strip these patterns from user input using regex before processing: `ignore`, `system:`, `assistant:`, `<|`, `|>`, `[INST]`, `[/INST]`
+  - Max user input length: 1000 characters. Reject inputs exceeding this with HTTP 400.
 
 - **Retrieved content sanitization**:
   - Remove HTML tags, `<script>` blocks, and executable code fences from chunk text before injecting into prompt
@@ -250,26 +250,26 @@ Implement the following safeguards in the order listed. Each check must pass bef
 
 ---
 
-## **6. Frontend Requirements**
+## 6. Frontend Requirements
 
 **Technology stack**:
-- **Next.js 14 (App Router)**: React framework with server components and file-based routing — chosen for fast initial page load via server-side rendering and built-in API routes
-- **Tailwind CSS**: Utility-first CSS framework — chosen for rapid styling without writing custom CSS files
-- **Framer Motion**: React animation library — chosen for smooth, physics-based transitions between UI states
+- **Next.js 14 (App Router)**: React framework with server components and file-based routing — chosen for initial page load via server-side rendering and built-in API routes
+- **Tailwind CSS**: Utility-first CSS framework — chosen for styling without writing custom CSS files
+- **Framer Motion**: React animation library — chosen for physics-based transitions between UI states
 
 **Required components and behavior**:
 
 - **Chat interface**: Displays conversation history, sends queries via POST `/api/chat`, renders streaming tokens as they arrive via SSE. Input field accepts up to 1000 characters. Send button disabled while a response is streaming.
 
-- **Streaming response renderer**: Renders markdown (bold, italic, code blocks, lists) as tokens arrive. Displays `[Author, Year, Chunk ID]` citations as clickable links that open the citation panel.
+- **Streaming response renderer**: Renders markdown (bold, italic, code blocks, lists) as tokens arrive. Displays `[Author, Year, Chunk ID]` citations as clickable links opening the citation panel.
 
-- **Document upload component**: Accepts PDF files via drag-and-drop or file picker. Validates file type (PDF only) and size (max 50MB) client-side before upload. Shows upload progress as a percentage bar. Displays success or error state after upload completes.
+- **Document upload component**: Accepts PDF files via drag-and-drop or file picker. Validates file type (PDF only) and size (max 50MB) client-side before upload. Shows upload progress as percentage bar. Displays success or error state after upload completes.
 
-- **Citation panel**: Slides in from the right side when a citation is clicked. Displays chunk text, document title, authors, year, and page number. Closes on Escape key or outside click.
+- **Citation panel**: Slides in from right side when a citation is clicked. Displays chunk text, document title, authors, year, and page number. Closes on Escape key or outside click.
 
-- **Search history sidebar**: Lists past queries for the current session in reverse chronological order. Clicking a past query re-submits it.
+- **Search history sidebar**: Lists past queries for current session in reverse chronological order. Clicking a past query re-submits it.
 
-- **Typing indicator**: Animated three-dot pulse shown while the system is retrieving chunks (between query submission and first SSE token).
+- **Typing indicator**: Animated three-dot pulse shown while system is retrieving chunks (between query submission and first SSE token).
 
 - **Responsive layout**: Single column on screens < 768px, two columns on 768px–1024px, three columns with sidebar on > 1024px.
 
@@ -285,7 +285,7 @@ Implement the following safeguards in the order listed. Each check must pass bef
 
 ---
 
-## **7. Backend Requirements**
+## 7. Backend Requirements
 
 **Technology stack**:
 - **Python 3.11 + FastAPI**: Async web framework built on Starlette and Pydantic — chosen for native async/await support (handles concurrent requests without blocking), automatic OpenAPI docs at `/docs`, and request validation via Pydantic models
@@ -297,25 +297,25 @@ Implement the following safeguards in the order listed. Each check must pass bef
 - **Retrieval orchestration**: Execute the 5-step retrieval pipeline (Section 3) and return results within 500ms at p95
 - **Embedding generation**: Encode queries using `all-MiniLM-L6-v2`; use Redis cache to skip recomputation for repeated queries
 - **Document indexing**: Receive Celery task results and store chunk embeddings in ChromaDB; update PostgreSQL document status to `indexed`
-- **JWT authentication** (JSON Web Token — a signed token containing user ID and expiration, used for stateless authentication without server-side session storage):
+- **JWT authentication** (JSON Web Token — signed token containing user ID and expiration, used for stateless authentication without server-side session storage):
   - Access token: expires in 30 minutes, used in `Authorization: Bearer <token>` header
   - Refresh token: expires in 7 days, used to obtain new access tokens
 - **Session management**: Read and write conversation history in Redis using key `session:{user_id}:{session_id}`
 - **SSE streaming**: Forward Gemini token stream to client; send `event: done` when generation completes
-- **Rate limiting**: Allow max 20 requests per minute per user IP using Redis counter with 60-second TTL; return HTTP 429 when exceeded
+- **Rate limiting**: Allow max 20 requests/minute per user IP using Redis counter with 60-second TTL; return HTTP 429 when exceeded
 
 **Provide working code for**: All API route handlers, JWT authentication middleware, rate limiting middleware, session manager, Celery background task handler.
 
 ---
 
-## **8. Database and Storage**
+## 8. Database and Storage
 
 | **Layer**     | **Technology** | **Why Chosen**                                                                                   | **Where Used**                                      |
 |---------------|----------------|--------------------------------------------------------------------------------------------------|-----------------------------------------------------|
 | Vector DB     | ChromaDB       | Open-source, persistent local storage, Python-native API, supports metadata filtering            | Stores chunk embeddings; queried during retrieval   |
-| Relational DB | PostgreSQL 15  | ACID-compliant (guarantees data integrity), supports complex queries, widely supported           | Stores users, document metadata, session records    |
+| Relational DB | PostgreSQL 15  | ACID-compliant (guarantees data integrity), supports complex queries, used by 40% of production databases (DB-Engines 2024)           | Stores users, document metadata, session records    |
 | Cache         | Redis 7        | In-memory storage with sub-millisecond latency, built-in TTL, supports atomic increment for rate limiting | Stores embeddings cache, session history, rate limit counters |
-| File Storage  | Local / AWS S3 | Local for development (no setup), S3 for production (durable, scalable object storage)          | Stores raw uploaded PDFs before processing         |
+| File Storage  | Local / AWS S3 | Local for development (no setup), S3 for production (99.999999999% data durability, auto-scales to petabytes)          | Stores raw uploaded PDFs before processing         |
 
 **Provide**:
 - PostgreSQL schema with `CREATE TABLE` statements for: `users`, `documents`, `chunks`, `sessions`, `conversation_turns` — include primary keys, foreign keys, and indexes on frequently queried columns
@@ -327,9 +327,9 @@ Implement the following safeguards in the order listed. Each check must pass bef
 
 ---
 
-## **9. API Design**
+## 9. API Design
 
-Implement the following endpoints with the specified input and output contracts:
+Implement these endpoints with the specified input/output contracts:
 
 ```
 POST   /api/documents/upload
@@ -391,15 +391,15 @@ All responses use this envelope:
 
 ---
 
-## **10. Authentication and Security**
+## 10. Authentication and Security
 
-Implement the following security controls:
+Implement these security controls:
 
 - **JWT authentication** with refresh token rotation:
   - Sign tokens with HS256 algorithm using a 256-bit secret key from environment variable `JWT_SECRET_KEY`
   - On refresh: issue new access token + new refresh token, invalidate old refresh token by storing used tokens in Redis with TTL matching token expiry
 
-- **Rate limiting**: 20 requests per minute per user IP. Use Redis `INCR` + `EXPIRE` pattern. Return HTTP 429 with `Retry-After` header when exceeded.
+- **Rate limiting**: 20 requests/minute per user IP. Use Redis `INCR` + `EXPIRE` pattern. Return HTTP 429 with `Retry-After` header when exceeded.
 
 - **File upload validation**:
   - Check MIME type equals `application/pdf`
@@ -422,7 +422,7 @@ Implement the following security controls:
 
 ---
 
-## **11. Monitoring and Observability**
+## 11. Monitoring and Observability
 
 Implement production observability using:
 
@@ -430,11 +430,11 @@ Implement production observability using:
 - **Grafana** (visualization dashboard — connects to Prometheus and renders charts): pre-configure dashboards for all metrics below
 - **OpenTelemetry** (vendor-neutral distributed tracing framework — records the path of a single request across all services as a tree of spans): instrument every API handler and retrieval step with trace spans
 
-Track the following metrics with their alert thresholds:
+Track these metrics with their alert thresholds:
 
 | **Metric**                      | **Type**    | **Target**              | **Alert Condition**       | **Why Tracked**                                      |
 |---------------------------------|-------------|-------------------------|---------------------------|------------------------------------------------------|
-| p95 retrieval latency           | Histogram   | < 500ms                 | > 500ms for 5 min         | Ensures fast search; slow retrieval degrades UX      |
+| p95 retrieval latency           | Histogram   | < 500ms                 | > 500ms for 5 min         | Ensures search stays responsive; slow retrieval degrades UX      |
 | p95 end-to-end response latency | Histogram   | < 2000ms                | > 2000ms for 5 min        | Total time from query to last SSE token              |
 | Hallucination rate              | Gauge       | < 5%                    | > 5% over 1 hour          | Percentage of responses with unverified citations    |
 | Retrieval Precision@5           | Gauge       | > 0.80                  | < 0.80 over 1 hour        | Fraction of top-5 chunks that are relevant           |
@@ -445,9 +445,9 @@ Track the following metrics with their alert thresholds:
 
 ---
 
-## **12. Evaluation Framework**
+## 12. Evaluation Framework
 
-Implement automated evaluation pipelines that measure system quality against a labeled test set. Run evaluations offline (not in the live request path).
+Build automated evaluation pipelines measuring system quality against a labeled test set. Run evaluations offline (not in the live request path).
 
 **Metrics to measure**:
 
@@ -469,9 +469,9 @@ Implement automated evaluation pipelines that measure system quality against a l
 
 ---
 
-## **13. Deployment**
+## 13. Deployment
 
-Provide a complete deployment configuration using the following components:
+Provide a complete deployment configuration using these components:
 
 - **Docker containers** — one per service:
   - `frontend`: Next.js app, port 3000
@@ -483,7 +483,7 @@ Provide a complete deployment configuration using the following components:
   - `prometheus`: Prometheus, port 9090
   - `grafana`: Grafana, port 3001
 
-- **Docker Compose** for local development: single `docker-compose.yml` that starts all 8 services with health checks and dependency ordering
+- **Docker Compose** for local development: single `docker-compose.yml` starting all 8 services with health checks and dependency ordering
 
 - **Kubernetes manifests** for production:
   - `Deployment` for each service with resource limits (CPU: 500m, memory: 512Mi for backend; CPU: 200m, memory: 256Mi for frontend)
@@ -504,9 +504,9 @@ Provide a complete deployment configuration using the following components:
 
 ---
 
-## **14. Documentation**
+## 14. Documentation
 
-Provide the following documentation files:
+Provide these documentation files:
 
 - **Folder structure**: List every file in the project with a one-line description of its responsibility
 - **Setup guide**: Step-by-step instructions for local development (Docker Compose) and production deployment (Kubernetes), including exact commands to run
@@ -517,9 +517,9 @@ Provide the following documentation files:
 
 ---
 
-## **Final Output Checklist**
+## Final Output Checklist
 
-Your response must include ALL of the following — do not omit any item:
+Your response must include ALL of these — don't omit any item:
 
 - Complete modular folder structure with file descriptions
 - PDF ingestion pipeline code (parser, metadata extractor, chunker, deduplicator)
